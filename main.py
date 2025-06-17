@@ -32,9 +32,13 @@ async def process_zip(
 
     should_cleanup = True
     try:
-        # 1. Guardar .zip subido
+        # 1. Guardar .zip subido sin cargar todo en memoria
         with open(zip_in, "wb") as f:
-            f.write(await file.read())
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
         # 2. Descomprimir
         os.makedirs(in_dir, exist_ok=True)
         with zipfile.ZipFile(zip_in, 'r') as zf:
