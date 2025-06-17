@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 import os, zipfile, uuid, shutil, traceback
 from handler import upscale_images
+from fastapi.concurrency import run_in_threadpool
 
 app = FastAPI()
 
@@ -25,7 +26,7 @@ async def process_zip(file: UploadFile = File(...)):
         # 3. Upscale
         os.makedirs(out_dir, exist_ok=True)
         model_path = "weights/RealESRGAN_x4plus.pth"
-        upscale_images(in_dir, out_dir, model_path)
+        await run_in_threadpool(upscale_images, in_dir, out_dir, model_path)
         # 4. Comprimir resultado
         shutil.make_archive(zip_out.replace('.zip',''), 'zip', out_dir)
         # 5. Devolver con nombre dinámico
