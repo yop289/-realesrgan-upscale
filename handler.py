@@ -32,8 +32,16 @@ def upscale_images(input_folder, output_folder, model_path):
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
+    # Patrónes de extensiones de imágenes comúnmente soportadas
+    patterns = ['*.jpg', '*.jpeg', '*.png']
+
+    # Reunir todas las imágenes que coincidan con las extensiones
+    img_paths = []
+    for pattern in patterns:
+        img_paths.extend(input_folder.rglob(pattern))
+
     # Procesar cada imagen
-    for img_path in input_folder.rglob("*.[jp][pn]g"):
+    for img_path in img_paths:
         print(f"[INFO] Procesando imagen: {img_path}")
         relative = img_path.relative_to(input_folder)
         output_path = output_folder / relative
@@ -55,5 +63,5 @@ def upscale_images(input_folder, output_folder, model_path):
         cv2.imwrite(str(output_path), sr_img)
         print(f"[INFO] Guardado: {output_path}")
 
-    total = len(list(input_folder.rglob("*.[jp][pn]g")))
+    total = len(img_paths)
     print(f"[INFO] ✅ Completado: {total} imágenes procesadas.")
