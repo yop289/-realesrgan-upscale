@@ -12,41 +12,36 @@ def upscale_images(input_folder, output_folder, model_path):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # Definir la arquitectura RRDBNet para x4
     model = RRDBNet(
         num_in_ch=3, num_out_ch=3,
         num_feat=64, num_block=23,
         num_grow_ch=32, scale=4
     )
 
-    # Crear el objeto RealESRGANer
     upscaler = RealESRGANer(
         device=device,
         model=model,
         scale=4,
         model_path=model_path,
-        half=False   # usa FP32 para mayor compatibilidad
+        half=False,
+        tile=512,     # <-- CLAVE para OOM
+        tile_pad=10
     )
 
     input_folder = Path(input_folder)
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    # Patrónes de extensiones de imágenes comúnmente soportadas
     patterns = ['*.jpg', '*.jpeg', '*.png']
-
-    # Reunir todas las imágenes que coincidan con las extensiones
     img_paths = []
     for pattern in patterns:
         img_paths.extend(input_folder.rglob(pattern))
 
-    # Procesar cada imagen
     for img_path in img_paths:
         print(f"[INFO] Procesando imagen: {img_path}")
         relative = img_path.relative_to(input_folder)
         output_path = output_folder / relative
 
-        # Evitar reprocesar
         if output_path.exists():
             print(f"[SKIP] Ya existe: {output_path}")
             continue
@@ -58,10 +53,10 @@ def upscale_images(input_folder, output_folder, model_path):
             print(f"[WARN] No se pudo leer {img_path}")
             continue
 
-        # Upscale
         sr_img, _ = upscaler.enhance(img, outscale=4)
         cv2.imwrite(str(output_path), sr_img)
         print(f"[INFO] Guardado: {output_path}")
+        torch.cuda.empty_cache()   # <-- Esto libera memoria GPU entre imágenes
 
     total = len(img_paths)
     print(f"[INFO] ✅ Completado: {total} imágenes procesadas.")

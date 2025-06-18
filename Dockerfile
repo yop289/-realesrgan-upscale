@@ -19,7 +19,7 @@ RUN apt-get update \
 
 # 4) Instalamos PyTorch con soporte CUDA 11.8 (sm_86) y luego el resto
 RUN pip3 install --upgrade pip \
- && pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu118 \
+ && pip3 install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118 \
  && pip3 install -r requirements.txt
 
 # 5) Descarga el modelo Real-ESRGAN

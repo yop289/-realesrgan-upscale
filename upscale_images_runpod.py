@@ -5,6 +5,8 @@ import shutil
 import time
 from tqdm import tqdm
 from dotenv import load_dotenv
+from tqdm import tqdm
+from requests_toolbelt.multipart.encoder import MultipartEncoder, MultipartEncoderMonitor
 
 # -------------------- CONFIG --------------------
 load_dotenv()
@@ -25,12 +27,15 @@ def comprimir_carpeta(nombre):
     zip_path = os.path.join(BASE_DIR, f"{nombre}.zip")
     if not os.path.exists(zip_path):
         log(f"🗜️  Comprimiendo {nombre}...")
+        # Recolectar lista de archivos para la barra de progreso
+        all_files = []
+        for root, _, files in os.walk(carpeta):
+            for file in files:
+                all_files.append(os.path.join(root, file))
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for root, _, files in os.walk(carpeta):
-                for file in files:
-                    filepath = os.path.join(root, file)
-                    arcname = os.path.relpath(filepath, carpeta)
-                    zipf.write(filepath, arcname=os.path.join(nombre, arcname))
+            for filepath in tqdm(all_files, desc=f"Comprimiendo {nombre}", unit="file"):
+                arcname = os.path.relpath(filepath, carpeta)
+                zipf.write(filepath, arcname=os.path.join(nombre, arcname))
         shutil.rmtree(carpeta)
         log(f"🧹 Carpeta {nombre} eliminada después de comprimir.")
 
@@ -39,21 +44,30 @@ def encontrar_zips():
 
 def enviar_a_runpod(zip_path):
     log(f"🚀 Subiendo {zip_path} a RunPod")
-    with open(zip_path, "rb") as f:
-        files = {"file": (os.path.basename(zip_path), f, "application/zip")}
-        response = requests.post(RUNPOD_ENDPOINT, headers=HEADERS, files=files)
+    # Subida con barra de progreso usando MultipartEncoderMonitor
+    encoder = MultipartEncoder(fields={
+        "file": (os.path.basename(zip_path), open(zip_path, "rb"), "application/zip")
+    })
+    with tqdm(total=encoder.len, unit="B", unit_scale=True, desc=f"Subiendo {os.path.basename(zip_path)}") as pbar:
+        monitor = MultipartEncoderMonitor(encoder, lambda monitor: pbar.update(monitor.bytes_read - pbar.n))
+        response = requests.post(RUNPOD_ENDPOINT, data=monitor, headers={**HEADERS, "Content-Type": monitor.content_type})
     if response.status_code != 200:
         raise Exception(f"❌ Error en RunPod: {response.status_code} - {response.text}")
     log("📥 Descargando archivo procesado...")
     output_path = zip_path.replace(".zip", "_x4.zip")
-    with open(output_path, "wb") as f:
-        f.write(response.content)
+    # Descarga con barra de progreso
+    total_size = int(response.headers.get("Content-Length", 0))
+    with open(output_path, "wb") as f, tqdm(total=total_size, unit="B", unit_scale=True, desc=f"Descargando {os.path.basename(output_path)}") as pbar:
+        for chunk in response.iter_content(chunk_size=1024*1024):
+            if chunk:
+                f.write(chunk)
+                pbar.update(len(chunk))
     return output_path
 
 def procesar():
     log("🔍 Buscando carpetas...")
     carpetas = [d for d in os.listdir(BASE_DIR) if os.path.isdir(d) and d.isdigit()]
-    for carpeta in carpetas:
+    for carpeta in tqdm(carpetas, desc="Comprimiendo carpetas", unit="carpeta"):
         comprimir_carpeta(carpeta)
 
     zips = encontrar_zips()
@@ -61,7 +75,7 @@ def procesar():
         log("🟡 No hay ZIPs para procesar.")
         return
 
-    for zip_name in zips:
+    for zip_name in tqdm(zips, desc="Procesando zips", unit="zip"):
         zip_path = os.path.join(BASE_DIR, zip_name)
         try:
             output_file = enviar_a_runpod(zip_path)

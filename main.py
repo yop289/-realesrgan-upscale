@@ -3,10 +3,9 @@ from fastapi.responses import FileResponse
 import os, zipfile, uuid, shutil, traceback
 from handler import upscale_images
 from fastapi.concurrency import run_in_threadpool
-
+from pathlib import Path
 
 def _cleanup(paths):
-    """Remove temporary files and directories."""
     for p in paths:
         try:
             if os.path.isdir(p):
@@ -57,11 +56,54 @@ async def process_zip(
             filename=f"{orig}_x4.zip",
         )
     except Exception as e:
-        # Imprime la traza completa en los logs del Pod
         tb = traceback.format_exc()
         print("❗️ Exception in /process/:\n", tb)
-        # Devuelve un 500 con el mensaje de error
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if should_cleanup:
             _cleanup([zip_in, in_dir, out_dir, zip_out])
+
+# NUEVO ENDPOINT: Procesar imagen individual
+@app.post("/process_image/")
+async def process_image(
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+):
+    job_id = uuid.uuid4().hex
+    base_dir = "/workspace"
+    input_dir  = os.path.join(base_dir, f"inimg_{job_id}")
+    output_dir = os.path.join(base_dir, f"outimg_{job_id}")
+
+    should_cleanup = True
+    try:
+        os.makedirs(input_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
+        # Guardar la imagen
+        orig_name = Path(file.filename).stem
+        ext = os.path.splitext(file.filename)[1].lower()
+        input_img = os.path.join(input_dir, f"{orig_name}{ext}")
+        with open(input_img, "wb") as f:
+            f.write(await file.read())
+        # Upscale
+        model_path = "weights/RealESRGAN_x4plus.pth"
+        await run_in_threadpool(upscale_images, input_dir, output_dir, model_path)
+        # Encontrar imagen procesada (debería haber solo una)
+        out_files = list(Path(output_dir).rglob("*"+ext))
+        if not out_files:
+            raise Exception("No se generó imagen de salida.")
+        result_img = str(out_files[0])
+        result_name = f"{orig_name}_x4{ext}"
+        background_tasks.add_task(_cleanup, [input_dir, output_dir])
+        should_cleanup = False
+        return FileResponse(
+            result_img,
+            media_type="image/png" if ext in [".png"] else "image/jpeg",
+            filename=result_name
+        )
+    except Exception as e:
+        tb = traceback.format_exc()
+        print("❗️ Exception in /process_image/:\n", tb)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if should_cleanup:
+            _cleanup([input_dir, output_dir])
